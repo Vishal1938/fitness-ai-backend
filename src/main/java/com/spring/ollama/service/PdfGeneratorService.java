@@ -22,7 +22,7 @@ public class PdfGeneratorService {
 
     private static final Logger logger = LoggerFactory.getLogger(PdfGeneratorService.class);
 
-    @Value("${fitness.pdf.output.path:C:\\Users\\singhvi\\Downloads\\spring-ai-ollama\\spring-ai-ollama\\target}")
+    @Value("${fitness.pdf.output.path:C:\\Users\\HP\\Downloads\\spring-ai-ollama\\spring-ai-ollama\\target}")
     private String pdfOutputPath;
 
     // Font definitions
@@ -42,6 +42,7 @@ public class PdfGeneratorService {
             // Create output directory if it doesn't exist
             Path outputDir = Paths.get(pdfOutputPath);
             if (!Files.exists(outputDir)) {
+                logger.info("path does not exist : {}",outputDir);
                 Files.createDirectories(outputDir);
                 logger.info("Created output directory: {}", pdfOutputPath);
             }

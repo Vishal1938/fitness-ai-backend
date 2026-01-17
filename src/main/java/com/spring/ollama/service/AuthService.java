@@ -170,7 +170,7 @@ public class AuthService {
         if (updatedUser.getHeight() != null) user.setHeight(updatedUser.getHeight());
         if (updatedUser.getFitnessGoal() != null) user.setFitnessGoal(updatedUser.getFitnessGoal());
         if (updatedUser.getExperienceLevel() != null) user.setExperienceLevel(updatedUser.getExperienceLevel());
-
+        if(updatedUser.getDietaryPreference() !=null)user.setDietaryPreference(updatedUser.getDietaryPreference());
         user.setUpdatedAt(LocalDateTime.now());
 
         return userRepository.save(user);
