@@ -19,6 +19,7 @@ import org.springframework.web.bind.annotation.*;
 import java.io.File;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.concurrent.CompletableFuture;
 
 @RestController
 @RequestMapping("/api/fitness")
@@ -190,6 +191,49 @@ public class FitnessAiController {
                     request.getTargetWeight(),
                     request.getHeight(),
                     request.getAditionalInfo()
+            );
+
+            // Parse the response into sections (simple string split approach)
+            CompleteFitnessPlanResponse response = parseCompletePlan(completePlan);
+
+            long endTime = System.currentTimeMillis();
+            response.setProcessingTimeMs(endTime - startTime);
+
+            logger.info("Complete fitness plan generated successfully in {} ms", (endTime - startTime));
+            return ResponseEntity.ok(response);
+
+        } catch (Exception e) {
+            logger.error("Error generating complete fitness plan", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(createErrorResponse("Error generating complete fitness plan: " + e.getMessage()));
+        }
+    }
+
+
+    @PostMapping("/user-complete-plan/{userId}/generate-pdf")
+    public ResponseEntity<String> generateFitnessPlanPdf(@PathVariable String userId) {
+
+        // Run in background thread
+        CompletableFuture.runAsync(() -> {
+            fitnessAiService.executeReportGeneration(userId);
+        });
+
+        return ResponseEntity.ok("Your fitness plan is being generated. You will receive it via email shortly.");
+    }
+
+
+    @PostMapping("/user-complete-plan/{userId}")
+    public ResponseEntity<CompleteFitnessPlanResponse> getCompleteFitnessPlanForUser(
+            @PathVariable String userId) {
+        logger.info("Received COMPLETE fitness plan request");
+        logger.debug("userId: {}", userId);
+
+        long startTime = System.currentTimeMillis();
+
+        try {
+            // Generate the complete plan
+            String completePlan = fitnessAiService.getCompleteFitnessPlan(
+                    userId
             );
 
             // Parse the response into sections (simple string split approach)

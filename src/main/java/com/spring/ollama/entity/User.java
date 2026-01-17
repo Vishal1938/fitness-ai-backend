@@ -38,6 +38,7 @@ public class User {
     private String height;
     private String fitnessGoal;
     private String experienceLevel;
+    private String dietaryPreference;
 
     // Account details
     private boolean enabled;
@@ -56,6 +57,16 @@ public class User {
     }
 
     // Getters and Setters
+
+
+    public String getDietaryPreference() {
+        return dietaryPreference;
+    }
+
+    public void setDietaryPreference(String dietaryPreference) {
+        this.dietaryPreference = dietaryPreference;
+    }
+
     public String getId() {
         return id;
     }

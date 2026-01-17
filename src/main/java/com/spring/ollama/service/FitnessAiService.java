@@ -1,12 +1,19 @@
 package com.spring.ollama.service;
 
+import com.spring.ollama.dto.CompleteFitnessPlanRequest;
+import com.spring.ollama.dto.ScheduledReportRequest;
+import com.spring.ollama.entity.User;
+import com.spring.ollama.repository.UserRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.ai.chat.prompt.PromptTemplate;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -15,6 +22,15 @@ public class FitnessAiService {
 
     private static final Logger logger = LoggerFactory.getLogger(FitnessAiService.class);
     private final ChatClient chatClient;
+
+    @Autowired
+    private UserRepository userRepository;
+
+    @Autowired
+    private PdfGeneratorService pdfGeneratorService;
+
+    @Autowired
+    private EmailService emailService;
 
     // In-memory conversation history storage
     private final Map<String, List<ConversationMessage>> conversationHistory = new ConcurrentHashMap<>();
@@ -242,6 +258,123 @@ public class FitnessAiService {
         return askFitnessQuestion(prompt);
     }
 
+
+    public String getCompleteFitnessPlan(String userId) {
+       Optional<User> optionalUser =userRepository.findById(userId);
+       User loggedInuser=null;
+       if(optionalUser.isPresent()){
+           loggedInuser =optionalUser.get();
+       }
+
+        logger.info("Generating COMPLETE fitness plan for user -name :{} ,age :{}, Goal: {},currentWeight: {},TargetWeight: {}, Experience: {}, Height: {}",
+                loggedInuser.getFirstName(),loggedInuser.getAge(), loggedInuser.getFitnessGoal(), loggedInuser.getCurrentWeight(),loggedInuser.getTargetWeight(),loggedInuser.getExperienceLevel(),loggedInuser.getHeight());
+
+        // Build a comprehensive prompt that requests all three components
+        StringBuilder promptBuilder = new StringBuilder();
+        promptBuilder.append("Create a COMPLETE and COMPREHENSIVE fitness plan for me with the following details:\n\n");
+
+        // Personal Information
+        promptBuilder.append("=== PERSONAL INFORMATION ===\n");
+        promptBuilder.append("Goal: ").append(loggedInuser.getFitnessGoal()).append("\n");
+        promptBuilder.append("Experience Level: ").append(loggedInuser.getExperienceLevel()).append("\n");
+        if (loggedInuser.getAge() != null) promptBuilder.append("Age: ").append(loggedInuser.getAge()).append("\n");
+        if (loggedInuser.getGender() != null) promptBuilder.append("Gender: ").append(loggedInuser.getGender()).append("\n");
+        if (loggedInuser.getCurrentWeight() != null) promptBuilder.append("Current Weight: ").append(loggedInuser.getCurrentWeight()).append("\n");
+        if (loggedInuser.getTargetWeight() != null) promptBuilder.append("Target Weight: ").append(loggedInuser.getTargetWeight()).append("\n");
+        if (loggedInuser.getHeight() != null) promptBuilder.append("Height: ").append(loggedInuser.getHeight()).append("\n");
+//        if(aditionalInfo!=null)promptBuilder.append("Note: ").append(aditionalInfo).append("\n");
+
+        promptBuilder.append("\n=== REQUIREMENTS ===\n");
+        promptBuilder.append("Training Days per Week: ").append("7").append("\n");
+        promptBuilder.append("Target Daily Calories: ").append("2000").append("\n");
+        promptBuilder.append("Dietary Preference: ").append(loggedInuser.getDietaryPreference()).append("\n");
+
+        promptBuilder.append("\n\nPlease provide a DETAILED plan with the following THREE sections:\n\n");
+
+        promptBuilder.append("1. WORKOUT PLAN:\n");
+        promptBuilder.append("   - Complete weekly schedule (Day 1, Day 2, etc.)\n");
+        promptBuilder.append("   - Specific exercises for each day\n");
+        promptBuilder.append("   - Sets, reps, and rest periods\n");
+        promptBuilder.append("   - Warm-up and cool-down routines\n");
+        promptBuilder.append("   - Progression strategy\n\n");
+
+        promptBuilder.append("2. MEAL PLAN:\n");
+        promptBuilder.append("   - Daily meal breakdown (Breakfast, Lunch, Dinner, Snacks)\n");
+        promptBuilder.append("   - Specific food items and portion sizes\n");
+        promptBuilder.append("   - Macronutrient breakdown (Protein, Carbs, Fats)\n");
+        promptBuilder.append("   - Meal timing recommendations\n");
+        promptBuilder.append("   - Meal prep tips\n\n");
+
+        promptBuilder.append("3. SUPPLEMENT RECOMMENDATIONS:\n");
+        promptBuilder.append("   - Essential supplements for my goal\n");
+        promptBuilder.append("   - Dosage recommendations\n");
+        promptBuilder.append("   - Timing (when to take each supplement)\n");
+        promptBuilder.append("   - Why each supplement is recommended\n\n");
+
+        promptBuilder.append("Make the plan practical, sustainable, and aligned with my goal of ").append(loggedInuser.getFitnessGoal()).append(".");
+
+        String prompt = promptBuilder.toString();
+        logger.debug("Complete plan prompt length: {} characters", prompt.length());
+
+        return askFitnessQuestion(prompt);
+    }
+
+
+
+    public void executeReportGeneration(String userId) {
+        logger.info("Executing scheduled report generation: for userId {}", userId);
+        Optional<User> optionalUser = userRepository.findById(userId);
+        User loggedInuser = null;
+        if (optionalUser.isPresent()) {
+            loggedInuser = optionalUser.get();
+        }
+
+        try {
+            // Generate fitness plan
+            logger.debug("Generating fitness plan for userId : {}", userId);
+            String fitnessPlan = getCompleteFitnessPlan(userId);
+
+            String pdfPath = null;
+
+            String fileName = generateFileName(loggedInuser.getFirstName());
+            pdfPath = pdfGeneratorService.generateFitnessPlanPdf(fitnessPlan, fileName);
+
+            String reportName = loggedInuser.getFirstName() != null ?
+                    loggedInuser.getFirstName() : "Fitness Plan ";
+            emailService.sendScheduledReportNotification(
+                    loggedInuser.getEmail(),
+                    reportName,
+                    pdfPath
+            );
+            logger.info("Email sent to: {}", loggedInuser.getEmail());
+
+        } catch (Exception e) {
+            logger.error("Error executing scheduled report: {} ",e);
+            // Optionally send error notification email
+            if (loggedInuser.getEmail() != null) {
+                try {
+                    emailService.sendSimpleEmail(
+                            loggedInuser.getEmail(),
+                            "Scheduled Report Failed",
+                            "Your scheduled fitness report (" + loggedInuser.getFirstName()+ ") failed to generate. " +
+                                    "Error: " + e.getMessage()
+                    );
+                } catch (Exception emailError) {
+                    logger.error("Failed to send error notification email", emailError);
+                }
+            }
+        }
+    }
+
+    private String generateFileName(String reportName) {
+        String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss"));
+
+        if (reportName != null && !reportName.isEmpty()) {
+            return reportName.replaceAll("\\s+", "_") + "_" + timestamp;
+        }
+
+        return "scheduled_report_" + reportName + "_" + timestamp;
+    }
     /**
      * Clear conversation history for a specific conversation ID
      */
