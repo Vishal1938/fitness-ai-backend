@@ -32,6 +32,9 @@ public class FitnessAiService {
     @Autowired
     private EmailService emailService;
 
+    @Autowired
+    private FitnessPlanParser fitnessPlanParser;
+
     // In-memory conversation history storage
     private final Map<String, List<ConversationMessage>> conversationHistory = new ConcurrentHashMap<>();
     private static final int MAX_HISTORY_SIZE = 10;
@@ -260,68 +263,86 @@ public class FitnessAiService {
 
 
     public String getCompleteFitnessPlan(String userId) {
-       Optional<User> optionalUser =userRepository.findById(userId);
-       User loggedInuser=null;
-       if(optionalUser.isPresent()){
-           loggedInuser =optionalUser.get();
-       }
 
-        logger.info("Generating COMPLETE fitness plan for user -name :{} ,age :{}, Goal: {},currentWeight: {},TargetWeight: {}, Experience: {}, Height: {}",
-                loggedInuser.getFirstName(),loggedInuser.getAge(), loggedInuser.getFitnessGoal(), loggedInuser.getCurrentWeight(),loggedInuser.getTargetWeight(),loggedInuser.getExperienceLevel(),loggedInuser.getHeight());
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new RuntimeException("User not found"));
 
-        // Build a comprehensive prompt that requests all three components
-        StringBuilder promptBuilder = new StringBuilder();
-        promptBuilder.append("Create a COMPLETE and COMPREHENSIVE fitness plan for me with the following details:\n\n");
+        int currentDay = 1;
 
-        // Personal Information
-        promptBuilder.append("=== PERSONAL INFORMATION ===\n");
-        promptBuilder.append("Goal: ").append(loggedInuser.getFitnessGoal()).append("\n");
-        promptBuilder.append("Experience Level: ").append(loggedInuser.getExperienceLevel()).append("\n");
-        if (loggedInuser.getAge() != null) promptBuilder.append("Age: ").append(loggedInuser.getAge()).append("\n");
-        if (loggedInuser.getGender() != null) promptBuilder.append("Gender: ").append(loggedInuser.getGender()).append("\n");
-        if (loggedInuser.getCurrentWeight() != null) promptBuilder.append("Current Weight: ").append(loggedInuser.getCurrentWeight()).append("\n");
-        if (loggedInuser.getTargetWeight() != null) promptBuilder.append("Target Weight: ").append(loggedInuser.getTargetWeight()).append("\n");
-        if (loggedInuser.getHeight() != null) promptBuilder.append("Height: ").append(loggedInuser.getHeight()).append("\n");
-//        if(aditionalInfo!=null)promptBuilder.append("Note: ").append(aditionalInfo).append("\n");
+        String resolvedGoal = user.getFitnessGoal();
+        if ("Muscle Gain".equalsIgnoreCase(resolvedGoal)
+                && user.getTargetWeight() != null
+                && user.getCurrentWeight() != null) {
 
-        promptBuilder.append("\n=== REQUIREMENTS ===\n");
-        promptBuilder.append("Training Days per Week: ").append("7").append("\n");
-        promptBuilder.append("Target Daily Calories: ").append("2000").append("\n");
-        promptBuilder.append("Dietary Preference: ").append(loggedInuser.getDietaryPreference()).append("\n");
+            // Convert String to Integer (or Double if decimals are possible)
+            int targetWeight = Integer.parseInt(user.getTargetWeight());
+            int currentWeight = Integer.parseInt(user.getCurrentWeight());
 
-        promptBuilder.append("\n\nPlease provide a DETAILED plan with the following THREE sections:\n\n");
+            if (targetWeight < currentWeight) {
+                resolvedGoal = "Body Recomposition (Fat Loss with Muscle Retention)";
+            }
+        }
 
-        promptBuilder.append("1. WORKOUT PLAN:\n");
-        promptBuilder.append("   - Complete weekly schedule (Day 1, Day 2, etc.)\n");
-        promptBuilder.append("   - Specific exercises for each day\n");
-        promptBuilder.append("   - Sets, reps, and rest periods\n");
-        promptBuilder.append("   - Warm-up and cool-down routines\n");
-        promptBuilder.append("   - Progression strategy\n\n");
 
-        promptBuilder.append("2. MEAL PLAN:\n");
-        promptBuilder.append("   - Daily meal breakdown (Breakfast, Lunch, Dinner, Snacks)\n");
-        promptBuilder.append("   - Specific food items and portion sizes\n");
-        promptBuilder.append("   - Macronutrient breakdown (Protein, Carbs, Fats)\n");
-        promptBuilder.append("   - Meal timing recommendations\n");
-        promptBuilder.append("   - Meal prep tips\n\n");
+        String dietaryPreference =
+                user.getDietaryPreference() != null
+                        ? user.getDietaryPreference()
+                        : "No specific dietary restrictions";
 
-        promptBuilder.append("3. SUPPLEMENT RECOMMENDATIONS:\n");
-        promptBuilder.append("   - Essential supplements for my goal\n");
-        promptBuilder.append("   - Dosage recommendations\n");
-        promptBuilder.append("   - Timing (when to take each supplement)\n");
-        promptBuilder.append("   - Why each supplement is recommended\n\n");
+        logger.info(
+                "Generating DAILY fitness plan for user - name: {}, day: {}, goal: {}",
+                user.getFirstName(), currentDay, resolvedGoal
+        );
 
-        promptBuilder.append("Make the plan practical, sustainable, and aligned with my goal of ").append(loggedInuser.getFitnessGoal()).append(".");
+        StringBuilder prompt = new StringBuilder();
 
-        String prompt = promptBuilder.toString();
-        logger.debug("Complete plan prompt length: {} characters", prompt.length());
+        prompt.append("Create a COMPLETE and DETAILED fitness plan for TODAY ONLY.\n");
+        prompt.append("This is Day ").append(currentDay).append(" of my fitness journey.\n\n");
 
-        return askFitnessQuestion(prompt);
+        prompt.append("=== PERSONAL INFORMATION ===\n");
+        prompt.append("Primary Goal: ").append(resolvedGoal).append("\n");
+        prompt.append("Experience Level: ").append(user.getExperienceLevel()).append("\n");
+        prompt.append("Age: ").append(user.getAge()).append("\n");
+        prompt.append("Gender: ").append(user.getGender()).append("\n");
+        prompt.append("Current Weight: ").append(user.getCurrentWeight()).append(" kg\n");
+        prompt.append("Target Weight: ").append(user.getTargetWeight()).append(" kg\n");
+        prompt.append("Height: ").append(user.getHeight()).append(" cm\n");
+
+        prompt.append("\n=== REQUIREMENTS ===\n");
+        prompt.append("Focus ONLY on today's plan.\n");
+        prompt.append("Dietary Preference: ").append(dietaryPreference).append("\n");
+
+        prompt.append("\nProvide ONLY the following sections for TODAY:\n\n");
+
+        prompt.append("1. TODAY'S WORKOUT PLAN\n");
+        prompt.append("2. TODAY'S MEAL PLAN\n");
+        prompt.append("3. TODAY'S SUPPLEMENT RECOMMENDATIONS\n\n");
+
+        prompt.append("IMPORTANT:\n");
+        prompt.append("- Prioritize muscle retention while supporting fat loss if applicable\n");
+        prompt.append("- Do NOT include other days or weekly schedules\n\n");
+
+        prompt.append("Make the plan realistic, safe, and aligned with the stated goal.");
+
+        return askFitnessQuestion(prompt.toString());
     }
 
 
+    // Updated method to return structured JSON
+    public String generateStructuredFitnessPlan(String userId) {
 
-    public void executeReportGeneration(String userId) {
+        // Get the LLM response (your existing method)
+        String llmResponse = getCompleteFitnessPlan(userId);
+
+        // Parse into structured format
+        String structuredJourney = fitnessPlanParser.parseToStructuredJourney(llmResponse, 1);
+
+        logger.info("Generated structured fitness plan for user: {}", userId);
+
+        return structuredJourney;
+    }
+
+    public String executeReportGeneration(String userId) {
         logger.info("Executing scheduled report generation: for userId {}", userId);
         Optional<User> optionalUser = userRepository.findById(userId);
         User loggedInuser = null;
@@ -334,6 +355,8 @@ public class FitnessAiService {
             logger.debug("Generating fitness plan for userId : {}", userId);
             String fitnessPlan = getCompleteFitnessPlan(userId);
 
+            // Parse into structured format
+            String structuredJourney = fitnessPlanParser.parseToStructuredJourney(fitnessPlan, 1);
             String pdfPath = null;
 
             String fileName = generateFileName(loggedInuser.getFirstName());
@@ -348,6 +371,7 @@ public class FitnessAiService {
             );
             logger.info("Email sent to: {}", loggedInuser.getEmail());
 
+            return structuredJourney;
         } catch (Exception e) {
             logger.error("Error executing scheduled report: {} ",e);
             // Optionally send error notification email
@@ -363,6 +387,8 @@ public class FitnessAiService {
                     logger.error("Failed to send error notification email", emailError);
                 }
             }
+            return "Your scheduled fitness report (" + loggedInuser.getFirstName()+ ") failed to generate. " +
+                    "Error: " + e.getMessage();
         }
     }
 

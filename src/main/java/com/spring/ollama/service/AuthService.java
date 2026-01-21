@@ -22,39 +22,33 @@ public class AuthService {
 
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
+    private final JwtService jwtService;
 
-    public AuthService(UserRepository userRepository, PasswordEncoder passwordEncoder) {
+    public AuthService(UserRepository userRepository, PasswordEncoder passwordEncoder,JwtService jwtService) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
+        this.jwtService=jwtService;
         logger.info("AuthService initialized");
     }
 
     /**
      * Register a new user
      */
+    // ==========================================
+// 3. BACKEND: AuthService.java - Register Method
+// ==========================================
     public AuthResponse register(RegisterRequest request) {
-        logger.info("Registering new user: {}", request.getEmail());
+        logger.info("Attempting registration for email: {}", request.getEmail());
 
         try {
-            // Validate input
-            if (request.getEmail() == null || request.getEmail().trim().isEmpty()) {
-                return new AuthResponse(false, "Email is required");
-            }
-            if (request.getUsername() == null || request.getUsername().trim().isEmpty()) {
-                return new AuthResponse(false, "Username is required");
-            }
-            if (request.getPassword() == null || request.getPassword().length() < 6) {
-                return new AuthResponse(false, "Password must be at least 6 characters");
-            }
-
             // Check if email already exists
-            if (userRepository.existsByEmail(request.getEmail())) {
+            if (userRepository.findByEmail(request.getEmail()).isPresent()) {
                 logger.warn("Email already exists: {}", request.getEmail());
                 return new AuthResponse(false, "Email already registered");
             }
 
             // Check if username already exists
-            if (userRepository.existsByUsername(request.getUsername())) {
+            if (userRepository.findByUsername(request.getUsername()).isPresent()) {
                 logger.warn("Username already exists: {}", request.getUsername());
                 return new AuthResponse(false, "Username already taken");
             }
@@ -69,18 +63,19 @@ public class AuthService {
             user.setPhoneNumber(request.getPhoneNumber());
             user.setEnabled(true);
             user.setRole("USER");
+            user.setCreatedAt(LocalDateTime.now());
+            user.setUpdatedAt(LocalDateTime.now());
 
             // Save user
             User savedUser = userRepository.save(user);
-            logger.info("User registered successfully: {}", savedUser.getId());
 
-            // Generate token (simple UUID for now)
-            String token = UUID.randomUUID().toString();
+            // Generate token
+            String token = jwtService.generateToken(savedUser.getEmail());
 
-            // Create UserDTO
-            UserDTO userDTO = convertToDTO(savedUser);
+            logger.info("User registered successfully: {}, ID: {}", savedUser.getEmail(), savedUser.getId());
 
-            return new AuthResponse(true, "Registration successful", token, userDTO);
+            // IMPORTANT: Return user object with ID
+            return new AuthResponse(true, "Registration successful", token, savedUser);
 
         } catch (Exception e) {
             logger.error("Error during registration", e);
@@ -88,11 +83,11 @@ public class AuthService {
         }
     }
 
-    /**
-     * Login user
-     */
+    // ==========================================
+// 2. BACKEND: AuthService.java - Login Method
+// ==========================================
     public AuthResponse login(CompleteFitnessPlanRequest.LoginRequest request) {
-        logger.info("Login attempt for: {}", request.getEmailOrUsername());
+        logger.info("Attempting login for: {}", request.getEmailOrUsername());
 
         try {
             // Find user by email or username
@@ -108,36 +103,36 @@ public class AuthService {
 
             User user = userOpt.get();
 
-            // Check if account is enabled
-            if (!user.isEnabled()) {
-                logger.warn("Account disabled: {}", user.getEmail());
-                return new AuthResponse(false, "Account is disabled");
-            }
-
             // Verify password
             if (!passwordEncoder.matches(request.getPassword(), user.getPassword())) {
                 logger.warn("Invalid password for user: {}", user.getEmail());
                 return new AuthResponse(false, "Invalid credentials");
             }
 
+            // Check if user is enabled
+            if (!user.isEnabled()) {
+                logger.warn("User account is disabled: {}", user.getEmail());
+                return new AuthResponse(false, "Account is disabled");
+            }
+
+            // Generate JWT token
+            String token = jwtService.generateToken(user.getEmail());
+
             // Update last login
             user.setLastLogin(LocalDateTime.now());
             userRepository.save(user);
 
-            // Generate token
-            String token = UUID.randomUUID().toString();
+            logger.info("Login successful for user: {}, ID: {}", user.getEmail(), user.getId());
 
-            // Create UserDTO
-            UserDTO userDTO = convertToDTO(user);
-
-            logger.info("Login successful for user: {}", user.getId());
-            return new AuthResponse(true, "Login successful", token, userDTO);
+            // IMPORTANT: Return user object with ID
+            return new AuthResponse(true, "Login successful", token, user);
 
         } catch (Exception e) {
             logger.error("Error during login", e);
             return new AuthResponse(false, "Login failed: " + e.getMessage());
         }
     }
+
 
     /**
      * Get user by ID

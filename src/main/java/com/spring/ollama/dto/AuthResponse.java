@@ -1,12 +1,16 @@
+// ==========================================
+// 1. BACKEND: AuthResponse.java (DTO)
+// ==========================================
 package com.spring.ollama.dto;
+
+import com.spring.ollama.entity.User;
 
 public class AuthResponse {
     private boolean success;
     private String message;
     private String token;
-    private UserDTO user;
+    private User user;
 
-    // Constructors
     public AuthResponse() {
     }
 
@@ -15,7 +19,7 @@ public class AuthResponse {
         this.message = message;
     }
 
-    public AuthResponse(boolean success, String message, String token, UserDTO user) {
+    public AuthResponse(boolean success, String message, String token, User user) {
         this.success = success;
         this.message = message;
         this.token = token;
@@ -47,11 +51,11 @@ public class AuthResponse {
         this.token = token;
     }
 
-    public UserDTO getUser() {
+    public User getUser() {
         return user;
     }
 
-    public void setUser(UserDTO user) {
+    public void setUser(User user) {
         this.user = user;
     }
 
@@ -61,7 +65,7 @@ public class AuthResponse {
                 "success=" + success +
                 ", message='" + message + '\'' +
                 ", token='" + token + '\'' +
-                ", user=" + user +
+                ", user=" + (user != null ? user.getEmail() : "null") +
                 '}';
     }
 }

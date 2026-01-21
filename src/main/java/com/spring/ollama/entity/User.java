@@ -1,5 +1,6 @@
 package com.spring.ollama.entity;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import org.springframework.data.annotation.Id;
 import org.springframework.data.mongodb.core.mapping.Document;
 import org.springframework.data.mongodb.core.index.Indexed;
@@ -56,6 +57,21 @@ public class User {
         this.updatedAt = LocalDateTime.now();
     }
 
+    public String getCurrentDailyRoutineId() {
+        return currentDailyRoutineId;
+    }
+
+    public void setCurrentDailyRoutineId(String currentDailyRoutineId) {
+        this.currentDailyRoutineId = currentDailyRoutineId;
+    }
+
+    public LocalDate getLastActiveDate() {
+        return lastActiveDate;
+    }
+
+    public void setLastActiveDate(LocalDate lastActiveDate) {
+        this.lastActiveDate = lastActiveDate;
+    }
     // Getters and Setters
 
 
@@ -67,6 +83,7 @@ public class User {
         this.dietaryPreference = dietaryPreference;
     }
 
+    @JsonProperty("id")
     public String getId() {
         return id;
     }
