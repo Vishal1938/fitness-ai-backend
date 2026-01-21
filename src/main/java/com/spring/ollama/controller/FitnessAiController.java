@@ -8,17 +8,22 @@ import com.spring.ollama.dto.MealPlanRequest;
 import com.spring.ollama.dto.PdfGenerationResponse;
 import com.spring.ollama.dto.SupplementRequest;
 import com.spring.ollama.dto.WorkoutPlanRequest;
+import com.spring.ollama.entity.DailyRoutine;
+import com.spring.ollama.service.DailyRoutineService;
 import com.spring.ollama.service.FitnessAiService;
 import com.spring.ollama.service.PdfGeneratorService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.io.File;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 
 @RestController
@@ -29,10 +34,12 @@ public class FitnessAiController {
     private static final Logger logger = LoggerFactory.getLogger(FitnessAiController.class);
     private final FitnessAiService fitnessAiService;
     private final PdfGeneratorService pdfGeneratorService;
+    private final DailyRoutineService dailyRoutineService;
 
-    public FitnessAiController(FitnessAiService fitnessAiService, PdfGeneratorService pdfGeneratorService) {
+    public FitnessAiController(FitnessAiService fitnessAiService, PdfGeneratorService pdfGeneratorService,DailyRoutineService dailyRoutineService) {
         this.fitnessAiService = fitnessAiService;
         this.pdfGeneratorService = pdfGeneratorService;
+        this.dailyRoutineService=dailyRoutineService;
         logger.info("FitnessAiController initialized");
     }
 
@@ -213,13 +220,131 @@ public class FitnessAiController {
     @PostMapping("/user-complete-plan/{userId}/generate-pdf")
     public ResponseEntity<String> generateFitnessPlanPdf(@PathVariable String userId) {
 
-        // Run in background thread
-        CompletableFuture.runAsync(() -> {
-            fitnessAiService.executeReportGeneration(userId);
-        });
+        // 1. Generate structured journey synchronously
+        String structuredJourney =
+                fitnessAiService.generateStructuredFitnessPlan(userId);
 
-        return ResponseEntity.ok("Your fitness plan is being generated. You will receive it via email shortly.");
+        // 2. Fire async PDF + email
+//        CompletableFuture.runAsync(() -> {
+//            fitnessAiService.generatePdfAndSendEmail(userId, structuredJourney);
+//        });
+
+        // 3. Return structured journey immediately
+//         Save to database
+            DailyRoutine savedRoutine = dailyRoutineService.saveDailyRoutine(userId, structuredJourney);
+            logger.info("Saved routine to database with id: {}", savedRoutine.getId());
+
+            // Return the structured JSON to frontend
+            return ResponseEntity.ok()
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(structuredJourney);
     }
+
+    /**
+     * Generate fitness plan and save to database
+     */
+//    @PostMapping("/user-complete-plan/{userId}/generate-pdf")
+//    public ResponseEntity<String> generateFitnessPlanPdf(@PathVariable String userId) {
+//        try {
+//            logger.info("Generating fitness plan for user: {}", userId);
+//
+//            // Generate structured plan from LLM
+//            String structuredPlan = fitnessAiService.generateStructuredPlanAndEmailAsync(userId);
+//
+//            // Save to database
+//            DailyRoutine savedRoutine = dailyRoutineService.saveDailyRoutine(userId, structuredPlan);
+//            logger.info("Saved routine to database with id: {}", savedRoutine.getId());
+//
+//            // Return the structured JSON to frontend
+//            return ResponseEntity.ok()
+//                    .contentType(MediaType.APPLICATION_JSON)
+//                    .body(structuredPlan);
+//
+//        } catch (Exception e) {
+//            logger.error("Error generating fitness plan for user: {}", userId, e);
+//            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+//                    .body("{\"error\": \"Failed to generate fitness plan\"}");
+//        }
+//    }
+
+    /**
+     * Get all routines for a user
+     */
+    @GetMapping("/routines/{userId}")
+    public ResponseEntity<List<DailyRoutine>> getAllRoutines(@PathVariable String userId) {
+        try {
+            List<DailyRoutine> routines = dailyRoutineService.getAllRoutinesByUser(userId);
+            return ResponseEntity.ok(routines);
+        } catch (Exception e) {
+            logger.error("Error fetching routines for user: {}", userId, e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
+
+    /**
+     * Get a specific day's routine
+     */
+    @GetMapping("/routines/{userId}/day/{dayNumber}")
+    public ResponseEntity<DailyRoutine> getRoutineByDay(
+            @PathVariable String userId,
+            @PathVariable int dayNumber) {
+        try {
+            Optional<DailyRoutine> routine = dailyRoutineService.getRoutineByDay(userId, dayNumber);
+            return routine.map(ResponseEntity::ok)
+                    .orElse(ResponseEntity.notFound().build());
+        } catch (Exception e) {
+            logger.error("Error fetching routine for user: {}, day: {}", userId, dayNumber, e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
+
+    /**
+     * Get current (latest) routine
+     */
+    @GetMapping("/routines/{userId}/current")
+    public ResponseEntity<String> getCurrentRoutine(@PathVariable String userId) {
+        try {
+            Optional<DailyRoutine> routine = dailyRoutineService.getCurrentRoutine(userId);
+            if (routine.isPresent()) {
+                return ResponseEntity.ok()
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body(routine.get().getStructuredPlanJson());
+            }
+            return ResponseEntity.notFound().build();
+        } catch (Exception e) {
+            logger.error("Error fetching current routine for user: {}", userId, e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
+
+    /**
+     * Mark a routine as completed
+     */
+    @PutMapping("/routines/{routineId}/complete")
+    public ResponseEntity<DailyRoutine> markRoutineAsCompleted(@PathVariable String routineId) {
+        try {
+            DailyRoutine routine = dailyRoutineService.markRoutineAsCompleted(routineId);
+            return ResponseEntity.ok(routine);
+        } catch (Exception e) {
+            logger.error("Error marking routine as completed: {}", routineId, e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
+
+    /**
+     * Delete all routines for a user (reset)
+     */
+    @DeleteMapping("/routines/{userId}")
+    public ResponseEntity<Void> deleteAllRoutines(@PathVariable String userId) {
+        try {
+            dailyRoutineService.deleteAllRoutinesForUser(userId);
+            return ResponseEntity.ok().build();
+        } catch (Exception e) {
+            logger.error("Error deleting routines for user: {}", userId, e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
+
 
 
     @PostMapping("/user-complete-plan/{userId}")
